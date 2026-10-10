@@ -1,0 +1,2 @@
+# Grant active user access to Intel NPU accelerator devices
+SUBSYSTEM=="accel", KERNEL=="accel*", GROUP="render", MODE="0666", TAG+="uaccess"

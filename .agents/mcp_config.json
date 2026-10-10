@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "intel-npu": {
+      "command": "/usr/bin/inpu",
+      "args": ["mcp"]
+    }
+  }
+}

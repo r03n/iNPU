@@ -1,0 +1,39 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+lib/
+*.egg-info/
+pkg/
+src/
+*.whl
+*.tar.gz
+*.pkg.tar.zst
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & caches
+.pytest_cache/
+.npucache/
+.coverage
+htmlcov/
+*.log
+
+# Model weights & caches (downloaded on demand)
+models/
+blob_cache/
+
+# Editor & OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
