@@ -75,6 +75,11 @@ class TestCLI(unittest.TestCase):
         for m in models:
             self.assertFalse(m["installed"])
 
+    def test_cli_list_filter_invalid(self):
+        result = self.runner.invoke(app, ["list", "--filter", "invalid_filter"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Invalid filter", result.stdout)
+
     def test_cli_check_model_json(self):
         result = self.runner.invoke(app, ["check", "qwen2.5", "--json"])
         self.assertEqual(result.exit_code, 0)

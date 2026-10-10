@@ -56,7 +56,7 @@ class NPUEngine:
 
         # Load GenAI Pipeline with graceful fallback
         try:
-            self.pipe = ov_genai.LLMPipeline(str(self.model_path), self.device, ov_config)
+            self.pipe = ov_genai.LLMPipeline(str(self.model_path), self.device, **ov_config)
         except Exception as e:
             if self.device == "NPU":
                 # Fallback to GPU (Intel Arc) or CPU if NPU permissions/platform not yet available
@@ -189,6 +189,8 @@ class NPUEngine:
 
         def streamer(chunk: str) -> bool:
             nonlocal first_token_time, token_count
+            if stop_event.is_set():
+                return True
             if first_token_time is None:
                 first_token_time = time.perf_counter()
             token_count += 1
@@ -205,13 +207,16 @@ class NPUEngine:
         t = threading.Thread(target=worker, daemon=True)
         t.start()
 
-        while True:
-            item = token_queue.get()
-            if item is None:
-                break
-            if isinstance(item, Exception):
-                raise item
-            yield item
+        try:
+            while True:
+                item = token_queue.get()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                yield item
+        finally:
+            stop_event.set()
 
         total_time = time.perf_counter() - start_time
         ttft = (first_token_time - start_time) * 1000 if first_token_time else 0.0

@@ -153,7 +153,11 @@ def list_models(
     filter_type: str = typer.Option("all", "--filter", help="Filter models: all, installed, not-installed"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal quiet view (no icons/table)"),
 ):
-    """Display supported and downloaded models."""
+    valid_filters = ("all", "installed", "not-installed")
+    if filter_type not in valid_filters:
+        console.print(f"[bold red]Invalid filter '{filter_type}'.[/bold red] Valid options: {', '.join(valid_filters)}")
+        raise typer.Exit(code=1)
+
     installed = ModelHub.list_installed()
     installed_tags = {m["tag"]: m for m in installed}
     catalog = ModelHub.list_catalog()
@@ -408,10 +412,14 @@ def run(
             if match:
                 filepath, custom_prompt = match.group(1), match.group(2)
                 file_p = Path(filepath)
-                if not file_p.exists():
-                    console.print(f"[bold red]File not found:[/bold red] {filepath}\n")
+                if not file_p.exists() or not file_p.is_file():
+                    console.print(f"[bold red]File not found or not a regular file:[/bold red] {filepath}\n")
                     continue
                 try:
+                    file_size = file_p.stat().st_size
+                    if file_size > 1_000_000:
+                        console.print(f"[bold red]File too large:[/bold red] {file_size:,} bytes exceeds 1 MB limit\n")
+                        continue
                     file_text = file_p.read_text(encoding="utf-8", errors="ignore")
                     user_input = f"{custom_prompt}\n\nContext from {file_p.name}:\n{file_text}"
                 except Exception as ex:

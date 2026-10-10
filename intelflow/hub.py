@@ -4,6 +4,7 @@ Downloads and caches INT4 OpenVINO models from Hugging Face Hub.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from huggingface_hub import snapshot_download
@@ -13,17 +14,45 @@ from intelflow.config import MODEL_DIR, MODEL_REGISTRY, resolve_model_tag
 
 console = Console()
 
+
+def validate_repo_id(repo_id: str) -> str:
+    """Validate and sanitize a repository ID to prevent path traversal."""
+    if not repo_id or not isinstance(repo_id, str):
+        raise ValueError("Invalid model repository ID: must be a non-empty string")
+
+    clean_id = repo_id.strip()
+    if ".." in clean_id or "\0" in clean_id or clean_id.startswith("/") or clean_id.startswith("\\"):
+        raise ValueError(f"Path traversal detected in model identifier: '{clean_id}'")
+
+    if not re.match(r"^[a-zA-Z0-9_.:-]+(/[a-zA-Z0-9_.:-]+)?$", clean_id):
+        raise ValueError(f"Invalid model repository format: '{clean_id}'. Expected 'name' or 'org/model'.")
+
+    return clean_id
+
+
 class ModelHub:
     @staticmethod
     def get_local_path_for_repo(repo_id: str) -> Path:
         """Map repo_id (e.g. 'OpenVINO/Qwen2.5-1.5B-Instruct-int4-ov') to local folder."""
-        safe_name = repo_id.replace("/", "--")
-        primary = MODEL_DIR / safe_name
+        clean_id = validate_repo_id(repo_id)
+        safe_name = clean_id.replace("/", "--")
+        primary = (MODEL_DIR / safe_name).resolve()
+        model_dir_res = MODEL_DIR.resolve()
+        legacy_dir = (Path.home() / ".cache" / "intelflowlm" / "models").resolve()
+
         if primary.exists():
+            if not primary.is_relative_to(model_dir_res):
+                raise ValueError(f"Path traversal violation: target directory outside model cache sandbox")
             return primary
-        legacy = Path.home() / ".cache" / "intelflowlm" / "models" / safe_name
+
+        legacy = legacy_dir / safe_name
         if legacy.exists():
+            if not legacy.is_relative_to(legacy_dir):
+                raise ValueError(f"Path traversal violation: legacy target directory outside sandbox")
             return legacy
+
+        if not primary.is_relative_to(model_dir_res):
+            raise ValueError(f"Path traversal violation: target directory outside model cache sandbox")
         return primary
 
     @classmethod
@@ -101,7 +130,17 @@ class ModelHub:
         """Delete model from local storage."""
         import shutil
         repo_id = resolve_model_tag(tag_or_repo)
-        target_dir = cls.get_local_path_for_repo(repo_id)
+        target_dir = cls.get_local_path_for_repo(repo_id).resolve()
+        model_dir_res = MODEL_DIR.resolve()
+        legacy_dir = (Path.home() / ".cache" / "intelflowlm" / "models").resolve()
+
+        # Enforce target_dir is strictly a child of model cache directory, not the directory itself
+        is_in_primary = target_dir.is_relative_to(model_dir_res) and target_dir != model_dir_res
+        is_in_legacy = target_dir.is_relative_to(legacy_dir) and target_dir != legacy_dir
+
+        if not (is_in_primary or is_in_legacy):
+            raise ValueError(f"Security error: cannot remove path outside model cache sandbox: {target_dir}")
+
         if target_dir.exists() and target_dir.is_dir():
             shutil.rmtree(target_dir)
             return True

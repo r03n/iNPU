@@ -4,6 +4,7 @@ Listens on port 52625 (FastFlowLM default) and serves LLM inference and embeddin
 directly accelerated by Intel Core Ultra NPU (Meteor Lake).
 """
 
+import asyncio
 import time
 import uuid
 import json
@@ -35,7 +36,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global engine state
+# Global engine state & concurrency serialization lock
+inference_lock = asyncio.Lock()
 current_engine: Optional[NPUEngine] = None
 current_embed_engine: Optional[NPUEmbeddingEngine] = None
 active_model_name: str = DEFAULT_MODEL
@@ -47,15 +49,26 @@ def get_engine(model_name: Optional[str] = None) -> NPUEngine:
     target_model = model_name or active_model_name or DEFAULT_MODEL
 
     if current_engine is None or current_engine.model_tag != target_model:
-        current_engine = NPUEngine(target_model, device="NPU")
-        active_model_name = target_model
+        try:
+            current_engine = NPUEngine(target_model, device="NPU")
+            active_model_name = target_model
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(status_code=404, detail=f"Model '{target_model}' not found: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model '{target_model}' on NPU: {e}")
     return current_engine
 
 
 def get_embed_engine(model_name: Optional[str] = None) -> NPUEmbeddingEngine:
     global current_embed_engine
+    target_model = model_name or "bge-small"
     if current_embed_engine is None:
-        current_embed_engine = NPUEmbeddingEngine(model_name or "bge-small")
+        try:
+            current_embed_engine = NPUEmbeddingEngine(target_model)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(status_code=404, detail=f"Embedding model '{target_model}' not found: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load embedding model '{target_model}' on NPU: {e}")
     return current_embed_engine
 
 
@@ -263,7 +276,6 @@ def format_messages(messages: List[ChatMessage]) -> str:
 # OpenAI Chat Completions
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatCompletionRequest):
-    engine = get_engine(req.model)
     prompt = format_messages(req.messages)
     req_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created_ts = int(time.time())
@@ -271,14 +283,31 @@ async def chat_completions(req: ChatCompletionRequest):
     if req.stream:
         async def event_generator():
             try:
-                for chunk in engine.generate_stream(
-                    prompt=prompt,
-                    max_new_tokens=req.max_tokens or 512,
-                    do_sample=(req.temperature or 0) > 0,
-                    temperature=req.temperature or 0.7,
-                    top_p=req.top_p or 0.9,
-                ):
-                    data = {
+                async with inference_lock:
+                    engine = get_engine(req.model)
+                    for chunk in engine.generate_stream(
+                        prompt=prompt,
+                        max_new_tokens=req.max_tokens or 512,
+                        do_sample=(req.temperature or 0) > 0,
+                        temperature=req.temperature or 0.7,
+                        top_p=req.top_p or 0.9,
+                    ):
+                        data = {
+                            "id": req_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_ts,
+                            "model": req.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": chunk},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+
+                    end_data = {
                         "id": req_id,
                         "object": "chat.completion.chunk",
                         "created": created_ts,
@@ -286,41 +315,28 @@ async def chat_completions(req: ChatCompletionRequest):
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"content": chunk},
-                                "finish_reason": None,
+                                "delta": {},
+                                "finish_reason": "stop",
                             }
                         ],
                     }
-                    yield f"data: {json.dumps(data)}\n\n"
-
-                end_data = {
-                    "id": req_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_ts,
-                    "model": req.model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(end_data)}\n\n"
-                yield "data: [DONE]\n\n"
+                    yield f"data: {json.dumps(end_data)}\n\n"
+                    yield "data: [DONE]\n\n"
             except Exception as e:
                 err_data = {"error": {"message": str(e), "type": "server_error"}}
                 yield f"data: {json.dumps(err_data)}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    res = engine.generate(
-        prompt=prompt,
-        max_new_tokens=req.max_tokens or 512,
-        do_sample=(req.temperature or 0) > 0,
-        temperature=req.temperature or 0.7,
-        top_p=req.top_p or 0.9,
-    )
+    async with inference_lock:
+        engine = get_engine(req.model)
+        res = engine.generate(
+            prompt=prompt,
+            max_new_tokens=req.max_tokens or 512,
+            do_sample=(req.temperature or 0) > 0,
+            temperature=req.temperature or 0.7,
+            top_p=req.top_p or 0.9,
+        )
 
     return {
         "id": req_id,
@@ -349,7 +365,6 @@ async def chat_completions(req: ChatCompletionRequest):
 # OpenAI Legacy Text Completions
 @app.post("/v1/completions")
 async def completions(req: CompletionRequest):
-    engine = get_engine(req.model)
     raw_prompt = req.prompt if isinstance(req.prompt, str) else "\n".join(req.prompt)
     req_id = f"cmpl-{uuid.uuid4().hex[:12]}"
     created_ts = int(time.time())
@@ -357,41 +372,45 @@ async def completions(req: CompletionRequest):
     if req.stream:
         async def event_generator():
             try:
-                for chunk in engine.generate_stream(
-                    prompt=raw_prompt,
-                    max_new_tokens=req.max_tokens or 512,
-                    do_sample=(req.temperature or 0) > 0,
-                    temperature=req.temperature or 0.7,
-                    top_p=req.top_p or 0.9,
-                ):
-                    data = {
-                        "id": req_id,
-                        "object": "text_completion",
-                        "created": created_ts,
-                        "model": req.model,
-                        "choices": [
-                            {
-                                "text": chunk,
-                                "index": 0,
-                                "logprobs": None,
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                    yield f"data: {json.dumps(data)}\n\n"
-                yield "data: [DONE]\n\n"
+                async with inference_lock:
+                    engine = get_engine(req.model)
+                    for chunk in engine.generate_stream(
+                        prompt=raw_prompt,
+                        max_new_tokens=req.max_tokens or 512,
+                        do_sample=(req.temperature or 0) > 0,
+                        temperature=req.temperature or 0.7,
+                        top_p=req.top_p or 0.9,
+                    ):
+                        data = {
+                            "id": req_id,
+                            "object": "text_completion",
+                            "created": created_ts,
+                            "model": req.model,
+                            "choices": [
+                                {
+                                    "text": chunk,
+                                    "index": 0,
+                                    "logprobs": None,
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+                    yield "data: [DONE]\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    res = engine.generate(
-        prompt=raw_prompt,
-        max_new_tokens=req.max_tokens or 512,
-        do_sample=(req.temperature or 0) > 0,
-        temperature=req.temperature or 0.7,
-        top_p=req.top_p or 0.9,
-    )
+    async with inference_lock:
+        engine = get_engine(req.model)
+        res = engine.generate(
+            prompt=raw_prompt,
+            max_new_tokens=req.max_tokens or 512,
+            do_sample=(req.temperature or 0) > 0,
+            temperature=req.temperature or 0.7,
+            top_p=req.top_p or 0.9,
+        )
 
     return {
         "id": req_id,
@@ -417,7 +436,6 @@ async def completions(req: CompletionRequest):
 # Ollama Native Chat & Generate
 @app.post("/api/chat")
 async def ollama_chat(req: OllamaChatRequest):
-    engine = get_engine(req.model)
     prompt = format_messages(req.messages)
     created_iso = datetime.now(timezone.utc).isoformat()
     max_tokens = (req.options or {}).get("num_predict", 512)
@@ -428,47 +446,54 @@ async def ollama_chat(req: OllamaChatRequest):
         async def event_generator():
             token_count = 0
             start_t = time.perf_counter()
-            for chunk in engine.generate_stream(
-                prompt=prompt,
-                max_new_tokens=max_tokens,
-                do_sample=temp > 0,
-                temperature=temp,
-                top_p=top_p,
-            ):
-                token_count += 1
-                data = {
-                    "model": req.model,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "message": {"role": "assistant", "content": chunk},
-                    "done": False,
-                }
-                yield f"{json.dumps(data)}\n"
+            try:
+                async with inference_lock:
+                    engine = get_engine(req.model)
+                    for chunk in engine.generate_stream(
+                        prompt=prompt,
+                        max_new_tokens=max_tokens,
+                        do_sample=temp > 0,
+                        temperature=temp,
+                        top_p=top_p,
+                    ):
+                        token_count += 1
+                        data = {
+                            "model": req.model,
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "message": {"role": "assistant", "content": chunk},
+                            "done": False,
+                        }
+                        yield f"{json.dumps(data)}\n"
 
-            dur_ns = int((time.perf_counter() - start_t) * 1e9)
-            final_data = {
-                "model": req.model,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "message": {"role": "assistant", "content": ""},
-                "done": True,
-                "total_duration": dur_ns,
-                "load_duration": 1000000,
-                "prompt_eval_count": len(prompt.split()),
-                "prompt_eval_duration": int(dur_ns * 0.1),
-                "eval_count": token_count,
-                "eval_duration": int(dur_ns * 0.9),
-            }
-            yield f"{json.dumps(final_data)}\n"
+                    dur_ns = int((time.perf_counter() - start_t) * 1e9)
+                    final_data = {
+                        "model": req.model,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "message": {"role": "assistant", "content": ""},
+                        "done": True,
+                        "total_duration": dur_ns,
+                        "load_duration": 1000000,
+                        "prompt_eval_count": len(prompt.split()),
+                        "prompt_eval_duration": int(dur_ns * 0.1),
+                        "eval_count": token_count,
+                        "eval_duration": int(dur_ns * 0.9),
+                    }
+                    yield f"{json.dumps(final_data)}\n"
+            except Exception as e:
+                yield f"{json.dumps({'error': str(e)})}\n"
 
         return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
-    start_t = time.perf_counter()
-    res = engine.generate(
-        prompt=prompt,
-        max_new_tokens=max_tokens,
-        do_sample=temp > 0,
-        temperature=temp,
-        top_p=top_p,
-    )
+    async with inference_lock:
+        engine = get_engine(req.model)
+        start_t = time.perf_counter()
+        res = engine.generate(
+            prompt=prompt,
+            max_new_tokens=max_tokens,
+            do_sample=temp > 0,
+            temperature=temp,
+            top_p=top_p,
+        )
     dur_ns = int((time.perf_counter() - start_t) * 1e9)
     tokens = res["metrics"].get("tokens_generated", 1)
 
@@ -485,7 +510,6 @@ async def ollama_chat(req: OllamaChatRequest):
 
 @app.post("/api/generate")
 async def ollama_generate(req: OllamaGenerateRequest):
-    engine = get_engine(req.model)
     full_prompt = f"<|im_start|>system\n{req.system}<|im_end|>\n<|im_start|>user\n{req.prompt}<|im_end|>\n<|im_start|>assistant\n" if req.system else req.prompt
     max_tokens = (req.options or {}).get("num_predict", 512)
     temp = (req.options or {}).get("temperature", 0.7)
@@ -495,43 +519,50 @@ async def ollama_generate(req: OllamaGenerateRequest):
         async def event_generator():
             token_count = 0
             start_t = time.perf_counter()
-            for chunk in engine.generate_stream(
-                prompt=full_prompt,
-                max_new_tokens=max_tokens,
-                do_sample=temp > 0,
-                temperature=temp,
-                top_p=top_p,
-            ):
-                token_count += 1
-                data = {
-                    "model": req.model,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "response": chunk,
-                    "done": False,
-                }
-                yield f"{json.dumps(data)}\n"
+            try:
+                async with inference_lock:
+                    engine = get_engine(req.model)
+                    for chunk in engine.generate_stream(
+                        prompt=full_prompt,
+                        max_new_tokens=max_tokens,
+                        do_sample=temp > 0,
+                        temperature=temp,
+                        top_p=top_p,
+                    ):
+                        token_count += 1
+                        data = {
+                            "model": req.model,
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "response": chunk,
+                            "done": False,
+                        }
+                        yield f"{json.dumps(data)}\n"
 
-            dur_ns = int((time.perf_counter() - start_t) * 1e9)
-            final_data = {
-                "model": req.model,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "response": "",
-                "done": True,
-                "total_duration": dur_ns,
-                "eval_count": token_count,
-            }
-            yield f"{json.dumps(final_data)}\n"
+                    dur_ns = int((time.perf_counter() - start_t) * 1e9)
+                    final_data = {
+                        "model": req.model,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "response": "",
+                        "done": True,
+                        "total_duration": dur_ns,
+                        "eval_count": token_count,
+                    }
+                    yield f"{json.dumps(final_data)}\n"
+            except Exception as e:
+                yield f"{json.dumps({'error': str(e)})}\n"
 
         return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
-    start_t = time.perf_counter()
-    res = engine.generate(
-        prompt=full_prompt,
-        max_new_tokens=max_tokens,
-        do_sample=temp > 0,
-        temperature=temp,
-        top_p=top_p,
-    )
+    async with inference_lock:
+        engine = get_engine(req.model)
+        start_t = time.perf_counter()
+        res = engine.generate(
+            prompt=full_prompt,
+            max_new_tokens=max_tokens,
+            do_sample=temp > 0,
+            temperature=temp,
+            top_p=top_p,
+        )
     dur_ns = int((time.perf_counter() - start_t) * 1e9)
     tokens = res["metrics"].get("tokens_generated", 1)
 
@@ -548,9 +579,10 @@ async def ollama_generate(req: OllamaGenerateRequest):
 # Embeddings Endpoints (OpenAI & Ollama)
 @app.post("/v1/embeddings")
 async def create_embeddings_openai(req: EmbeddingRequest):
-    embed_engine = get_embed_engine(req.model)
     inputs = [req.input] if isinstance(req.input, str) else req.input
-    vectors = embed_engine.embed_documents(inputs)
+    async with inference_lock:
+        embed_engine = get_embed_engine(req.model)
+        vectors = embed_engine.embed_documents(inputs)
 
     data = []
     for i, vec in enumerate(vectors):
@@ -573,9 +605,10 @@ async def create_embeddings_openai(req: EmbeddingRequest):
 
 @app.post("/api/embeddings")
 async def create_embeddings_ollama(req: OllamaEmbeddingRequest):
-    embed_engine = get_embed_engine(req.model)
     text = req.prompt or (req.input if isinstance(req.input, str) else (req.input[0] if req.input else ""))
-    vector = embed_engine.embed_query(text)
+    async with inference_lock:
+        embed_engine = get_embed_engine(req.model)
+        vector = embed_engine.embed_query(text)
     return {"embedding": vector}
 
 
