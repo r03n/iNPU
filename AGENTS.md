@@ -132,9 +132,9 @@ Add to `~/.config/Claude/claude_desktop_config.json` (Linux):
 
 ---
 
-### 3. Cursor & Windsurf
+### 3. Cursor & Open Code / Windsurf
 
-Add to `.cursor/mcp.json` or `.codeium/windsurf/mcp_config.json`:
+Add to `.cursor/mcp.json`, `.open-code/mcp.json`, or `.codeium/windsurf/mcp_config.json`:
 ```json
 {
   "mcpServers": {
@@ -162,14 +162,28 @@ aider --openai-api-base http://127.0.0.1:52625/v1 --openai-api-key inpu --model 
 
 ---
 
-## 📈 Best Practices & Mandatory Routing Rules for AI Agents
+## ⚡ Empirical Benchmark Profile (Intel AI Boost Meteor Lake)
 
-1. **Check NPU Readiness First**: Agents should invoke `npu_status()` at the start of a session to confirm hardware availability and active models.
-2. **Mandatory Micro-Task Offload**:
-   - **Git Diff & Change Summaries**: Always delegate diff analysis to `summarize_code_npu(code=diff, language="diff")`.
-   - **Symbol & API Explanations**: When explaining functions, classes, or types, invoke `explain_symbol_npu(symbol=name, context=code)`.
-   - **Semantic Embeddings**: Index codebases using `embed_npu(texts=[...])` at $0 cost and zero CPU fan noise.
-   - **Boilerplate & Test Generation**: Delegate repetitive drafts to `ask_npu(prompt=...)`.
-3. **Batch Embeddings Locally**: When indexing large codebases, call `embed_npu()` in batches of 32–64 chunks. The NPU processes dense matrix transformations with zero CPU overhead.
-4. **Graceful Fallback**: If an agent requests a model or sequence length exceeding hardware capacity, iNPU automatically falls back cleanly without crashing the agent session.
+Verified hardware benchmarks on **Intel Core Ultra 7 155H** (OpenVINO INT4/INT8):
+
+| Tool | Precision | Measured Latency | Power Profile | Optimal Agent Role |
+| :--- | :--- | :--- | :--- | :--- |
+| **`embed_npu`** | INT8 (384-d) | **~200ms / item** (~1.0s for 5 texts) | ~2.5W / Fanless | **⭐ Killer Feature**: Codebase semantic search & vector indexing |
+| **`npu_status`** | Sysfs / L0 | **< 2ms** | 0W overhead | Device readiness & hardware load telemetry |
+| **`ask_npu`** | INT4 (1.5B) | **~7s** (~100 tokens) | ~2.5W / Fanless | Docstrings, syntax lookups, offline generation |
+| **`explain_symbol_npu`** | INT4 (1.5B) | **~16s** (~150 tokens) | ~2.5W / Fanless | Function/class/type analysis without cloud egress |
+| **`summarize_code_npu`** | INT4 (1.5B) | **~23s** (30–60 line diff) | ~2.5W / Fanless | Background PR drafts, changelog summaries |
+
+---
+
+## 📈 Best Practices & Smart Hybrid Routing
+
+1. **Check NPU Readiness First**: Agents should invoke `npu_status()` at session startup to confirm device readiness and active models.
+2. **Prioritize Local Embeddings**: Always delegate semantic codebase indexing to `embed_npu(texts=[...])`. The NPU processes dense matrix transformations with zero CPU overhead, saving significant API token costs.
+3. **Smart Hybrid Routing**:
+   - **Always Offload**: Vector embeddings and hardware diagnostics.
+   - **Offload for Micro-Tasks & Background Runs**: Git diff summaries (`summarize_code_npu`), symbol explanations (`explain_symbol_npu`), and docstrings (`ask_npu`).
+   - **Retain on Cloud Frontier**: Interactive high-speed chat, complex multi-file planning, and heavy refactoring where sub-second turn latency is essential.
+4. **Graceful Fallback**: If an agent requests a sequence length exceeding hardware capacity, iNPU cleanly falls back without crashing the agent session.
+
 
