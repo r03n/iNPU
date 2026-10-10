@@ -27,5 +27,15 @@ class TestInstaller(unittest.TestCase):
         self.assertIn("--uninstall", res.stdout)
         self.assertIn("--yes", res.stdout)
 
+    def test_installer_no_raw_escape_codes(self):
+        res = subprocess.run([str(INSTALL_SH), "--help"], capture_output=True, text=True)
+        self.assertNotIn("\\033", res.stdout)
+        self.assertNotIn("\\033", res.stderr)
+
+        env_no_color = os.environ.copy()
+        env_no_color["NO_COLOR"] = "1"
+        res_nc = subprocess.run([str(INSTALL_SH), "--help"], env=env_no_color, capture_output=True, text=True)
+        self.assertNotIn("\\033", res_nc.stdout)
+
 if __name__ == "__main__":
     unittest.main()

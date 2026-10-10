@@ -20,17 +20,26 @@ NON_INTERACTIVE=false
 # ------------------------------------------------------------------------------
 # Output formatting
 # ------------------------------------------------------------------------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    CYAN=$'\033[0;36m'
+    YELLOW=$'\033[1;33m'
+    BOLD=$'\033[1m'
+    NC=$'\033[0m' # No Color
+else
+    RED=''
+    GREEN=''
+    CYAN=''
+    YELLOW=''
+    BOLD=''
+    NC=''
+fi
 
-info() { echo -e "${CYAN}==>${NC} ${BOLD}$1${NC}"; }
-success() { echo -e "${GREEN}✔${NC} $1"; }
-warn() { echo -e "${YELLOW}⚠${NC} $1"; }
-error() { echo -e "${RED}✖${NC} $1" >&2; }
+info() { echo "${CYAN}==>${NC} ${BOLD}$1${NC}"; }
+success() { echo "${GREEN}✔${NC} $1"; }
+warn() { echo "${YELLOW}⚠${NC} $1"; }
+error() { echo "${RED}✖${NC} $1" >&2; }
 
 # ------------------------------------------------------------------------------
 # CLI Arguments
