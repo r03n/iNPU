@@ -162,8 +162,14 @@ aider --openai-api-base http://127.0.0.1:52625/v1 --openai-api-key inpu --model 
 
 ---
 
-## 📈 Best Practices for AI Agents
+## 📈 Best Practices & Mandatory Routing Rules for AI Agents
 
-1. **Check NPU Readiness First**: Agents can invoke `npu_status()` at the start of a session to confirm hardware availability.
-2. **Batch Embeddings Locally**: When indexing large codebases, call `embed_npu()` in batches of 32–64 chunks. The NPU processes dense matrix transformations with zero CPU overhead.
-3. **Graceful Fallback**: If an agent requests a model or sequence length exceeding hardware capacity, iNPU automatically falls back cleanly without crashing the agent session.
+1. **Check NPU Readiness First**: Agents should invoke `npu_status()` at the start of a session to confirm hardware availability and active models.
+2. **Mandatory Micro-Task Offload**:
+   - **Git Diff & Change Summaries**: Always delegate diff analysis to `summarize_code_npu(code=diff, language="diff")`.
+   - **Symbol & API Explanations**: When explaining functions, classes, or types, invoke `explain_symbol_npu(symbol=name, context=code)`.
+   - **Semantic Embeddings**: Index codebases using `embed_npu(texts=[...])` at $0 cost and zero CPU fan noise.
+   - **Boilerplate & Test Generation**: Delegate repetitive drafts to `ask_npu(prompt=...)`.
+3. **Batch Embeddings Locally**: When indexing large codebases, call `embed_npu()` in batches of 32–64 chunks. The NPU processes dense matrix transformations with zero CPU overhead.
+4. **Graceful Fallback**: If an agent requests a model or sequence length exceeding hardware capacity, iNPU automatically falls back cleanly without crashing the agent session.
+
