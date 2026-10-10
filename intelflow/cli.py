@@ -29,6 +29,27 @@ app = typer.Typer(
 console = Console()
 
 
+def version_callback(value: bool):
+    if value:
+        from intelflow import __version__
+        console.print(f"⚡ [bold cyan]iNPU[/bold cyan] version [bold green]{__version__}[/bold green]")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+):
+    pass
+
+
 @app.command()
 def doctor():
     """Verify Intel NPU hardware, Linux DRM driver, and Level Zero runtime."""

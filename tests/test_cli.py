@@ -24,6 +24,15 @@ class TestCLI(unittest.TestCase):
         self.assertIn("top", result.stdout)
         self.assertIn("mcp", result.stdout)
 
+    def test_cli_version(self):
+        res1 = self.runner.invoke(app, ["--version"])
+        self.assertEqual(res1.exit_code, 0)
+        self.assertIn("iNPU version 0.1.0", res1.stdout)
+
+        res2 = self.runner.invoke(app, ["-v"])
+        self.assertEqual(res2.exit_code, 0)
+        self.assertIn("iNPU version 0.1.0", res2.stdout)
+
     def test_cli_port(self):
         result = self.runner.invoke(app, ["port"])
         self.assertEqual(result.exit_code, 0)
