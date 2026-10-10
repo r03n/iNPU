@@ -28,7 +28,7 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
-echo "Installing IntelFlowLM dependencies..."
+echo "Installing iNPU dependencies..."
 .venv/bin/pip install --upgrade pip -q
 .venv/bin/pip install -e . -q
 

@@ -1,5 +1,5 @@
 """
-Embedding generation engine for IntelFlowLM using OpenVINO.
+Embedding generation engine for iNPU using OpenVINO.
 Provides text and code embeddings for local semantic search.
 """
 
@@ -46,7 +46,11 @@ class NPUEmbeddingEngine:
         """Generate embeddings for a list of document strings."""
         if not texts:
             return []
-        return self.pipe.embed_documents(texts)
+        # Intel NPU encoder plugin requires batch size 1
+        results = []
+        for t in texts:
+            results.append(self.embed_query(t))
+        return results
 
     def embed_query(self, query: str) -> List[float]:
         """Generate embedding vector for a single query string."""

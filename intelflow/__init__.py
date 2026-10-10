@@ -1,12 +1,12 @@
 """
-IntelFlowLM (inpu): Intel NPU Inference Engine & Developer Runtime
+iNPU: Intel NPU Inference Engine & Developer Runtime
 """
 
 import os
 import sys
 
 def _bootstrap_site_packages():
-    """Ensure openvino_genai is accessible from system or user venv."""
+    """Ensure openvino_genai is accessible from system, inpu installer venv, or local venv."""
     try:
         import openvino_genai
         return
@@ -15,7 +15,10 @@ def _bootstrap_site_packages():
 
     import glob
     candidates = [
+        os.environ.get("INPU_VENV"),
         os.environ.get("INTELFLOW_VENV"),
+        "/opt/inpu/venv",
+        os.path.expanduser("~/.local/share/inpu/venv"),
         os.path.expanduser("~/.local/share/intelflow/venv"),
         "/home/wen/Documents/IntelNPU/.venv",
         os.path.join(os.getcwd(), ".venv"),

@@ -1,5 +1,5 @@
 """
-Model Context Protocol (MCP) Server for IntelFlowLM.
+Model Context Protocol (MCP) Server for iNPU.
 Exposes local Intel NPU tools to Antigravity over stdio.
 """
 
@@ -70,13 +70,18 @@ def explain_symbol_npu(symbol: str, context: str = "") -> str:
     return res["text"]
 
 @mcp.tool()
-def embed_npu(texts: List[str]) -> List[List[float]]:
+def embed_npu(texts: List[str]) -> Dict[str, Any]:
     """
     Generate normalized semantic vector embeddings for a list of text strings using the local Intel NPU.
     Enables rapid semantic code search and symbol indexing.
     """
     embed_engine = get_embed_engine()
-    return embed_engine.embed_documents(texts)
+    vectors = embed_engine.embed_documents(texts)
+    return {
+        "count": len(vectors),
+        "dimensions": len(vectors[0]) if vectors else 0,
+        "embeddings": vectors,
+    }
 
 @mcp.tool()
 def npu_status() -> Dict[str, Any]:

@@ -1,5 +1,5 @@
 """
-Command-Line Interface for IntelFlowLM (inpu / flm-intel).
+Command-Line Interface for iNPU.
 Provides 100% FastFlowLM feature parity: run, serve, pull, list, remove, check,
 validate, port, benchmark/bench, top, doctor, and mcp.
 """
@@ -23,7 +23,7 @@ from intelflow.doctor import check_kernel_driver, check_openvino_npu, run_doctor
 
 app = typer.Typer(
     name="inpu",
-    help="⚡ IntelFlowLM: Ultra-efficient LLM runtime for Intel Core Ultra NPUs (FastFlowLM counterpart)",
+    help="⚡ iNPU: Ultra-efficient LLM runtime for Intel Core Ultra NPUs (FastFlowLM counterpart)",
     add_completion=False,
 )
 console = Console()
@@ -41,7 +41,7 @@ def doctor():
 def validate(
     json_output: bool = typer.Option(False, "--json", help="Output validation results as a JSON object"),
 ):
-    """Verify that your hardware meets necessary requirements to run IntelFlowLM."""
+    """Verify that your hardware meets necessary requirements to run iNPU."""
     drm_info = check_kernel_driver()
     npu_info = check_openvino_npu()
 
@@ -58,7 +58,7 @@ def validate(
             "openvino_status": "OPTIMAL" if npu_info["status"] else "MISSING",
             "capabilities": npu_info.get("caps") or [],
         }
-        console.print(json.dumps(res, indent=2))
+        print(json.dumps(res, indent=2))
         return
 
     success = run_doctor()
@@ -68,7 +68,7 @@ def validate(
 
 @app.command()
 def port():
-    """Show current IntelFlowLM server port (default 52625)."""
+    """Show current iNPU server port (default 52625)."""
     console.print(str(DEFAULT_PORT))
 
 
@@ -111,7 +111,7 @@ def check_model(
     """Verify file integrity for a downloaded model."""
     res = ModelHub.check(model_tag)
     if json_output:
-        console.print(json.dumps(res, indent=2))
+        print(json.dumps(res, indent=2))
         return
 
     if not res.get("installed"):
@@ -153,7 +153,7 @@ def list_models(
                 "installed": is_inst,
                 "size_mb": installed_tags[tag]["size_mb"] if is_inst else None,
             })
-        console.print(json.dumps(all_models, indent=2))
+        print(json.dumps(all_models, indent=2))
         return
 
     if quiet:
@@ -202,12 +202,33 @@ def list_models(
 @app.command()
 def run(
     model_tag: str = typer.Argument(DEFAULT_MODEL, help="Model tag to run"),
+    prompt: Optional[str] = typer.Option(None, "--prompt", "-p", help="One-shot prompt to execute without starting interactive session"),
     device: str = typer.Option("NPU", "--device", "-d", help="Execution device: NPU, GPU, CPU"),
     max_tokens: int = typer.Option(512, "--max-tokens", "-m", help="Maximum tokens per response"),
     ctx_len: int = typer.Option(4096, "--ctx-len", "-c", help="Context length limit"),
 ):
     """Interactive streaming chat REPL on the Intel NPU."""
     from intelflow.engine import NPUEngine
+
+    # Support stdin pipe e.g. echo "Hello" | inpu run
+    if not prompt and not sys.stdin.isatty():
+        try:
+            piped = sys.stdin.read().strip()
+            if piped:
+                prompt = piped
+        except Exception:
+            pass
+
+    if prompt:
+        try:
+            engine = NPUEngine(model_tag, device=device)
+            for chunk in engine.generate_stream(prompt, max_new_tokens=max_tokens):
+                console.print(chunk, end="")
+            console.print()
+            return
+        except Exception as e:
+            console.print(f"[bold red]Execution failed:[/bold red] {e}")
+            raise typer.Exit(code=1)
 
     console.print(f"\n[bold cyan]⚡ Loading {model_tag} on {device.upper()}...[/bold cyan]")
     t0 = time.perf_counter()
@@ -429,7 +450,7 @@ def serve(
     from intelflow import server
 
     server.active_model_name = model_tag
-    console.print(f"\n[bold green]⚡ Starting IntelFlowLM server on http://{host}:{port}[/bold green]")
+    console.print(f"\n[bold green]⚡ Starting iNPU server on http://{host}:{port}[/bold green]")
     console.print(f"[cyan]Active Model:[/cyan] {model_tag} [dim](accelerated on Intel NPU)[/dim]")
     console.print(
         "[dim]Endpoints ready:\n"

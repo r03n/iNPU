@@ -111,12 +111,16 @@ makepkg -si
 
 `iNPU` provides a single unified command: **`inpu`**.
 
-### 1. Interactive Chat (`inpu run`)
+### 1. Interactive Chat & Prompting (`inpu run`)
 
 Launch an interactive streaming REPL on the NPU:
 
 ```bash
 inpu run qwen2.5
+# Or non-interactive scripted prompt:
+inpu run qwen2.5 -p "Explain quantum computing in one sentence"
+# Or piped stdin:
+echo "Write a python hello world function" | inpu run qwen2.5
 ```
 
 #### Interactive Slash Commands
@@ -150,7 +154,7 @@ inpu top --once
 
 **Live Output:**
 ```
-╭──────────────────── ⚡ IntelFlowLM NPU Hardware Monitor ─────────────────────╮
+╭──────────────────────── ⚡ iNPU Hardware Monitor ─────────────────────────╮
 │  Device                  Intel(R) AI Boost (NPU    Meteor Lake / Core Ultra  │
 │                          3720)                                               │
 │  Compute Utilization     0.0%                      Silicon active duty       │

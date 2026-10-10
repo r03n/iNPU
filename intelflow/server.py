@@ -1,5 +1,5 @@
 """
-OpenAI & Ollama Dual-Compatible REST API Server for IntelFlowLM.
+OpenAI & Ollama Dual-Compatible REST API Server for iNPU.
 Listens on port 52625 (FastFlowLM default) and serves LLM inference and embeddings
 directly accelerated by Intel Core Ultra NPU (Meteor Lake).
 """
@@ -21,7 +21,7 @@ from intelflow.monitor import NPUTelemetry
 from intelflow.config import DEFAULT_MODEL, resolve_model_tag
 
 app = FastAPI(
-    title="IntelFlowLM API",
+    title="iNPU API",
     description="Dual OpenAI- and Ollama-compatible API server running on Intel Core Ultra NPU",
     version="0.1.0"
 )
@@ -161,7 +161,7 @@ def list_models_openai():
             "id": m["tag"],
             "object": "model",
             "created": now_ts,
-            "owned_by": "intelflow-npu",
+            "owned_by": "inpu",
         })
 
     if not any(m["id"] == active_model_name for m in models_data):
@@ -169,14 +169,14 @@ def list_models_openai():
             "id": active_model_name,
             "object": "model",
             "created": now_ts,
-            "owned_by": "intelflow-npu",
+            "owned_by": "inpu",
         })
 
     models_data.append({
         "id": "bge-small",
         "object": "model",
         "created": now_ts,
-        "owned_by": "intelflow-npu",
+        "owned_by": "inpu",
     })
 
     return {"object": "list", "data": models_data}

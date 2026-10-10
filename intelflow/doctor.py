@@ -75,7 +75,7 @@ def check_openvino_npu() -> dict:
 
 def run_doctor() -> bool:
     """Run full diagnostic suite and print report."""
-    console.print("\n[bold cyan]⚡ IntelFlowLM (inpu) System Diagnostics[/bold cyan]\n")
+    console.print("\n[bold cyan]⚡ iNPU System Diagnostics[/bold cyan]\n")
     
     table = Table(title="Hardware & Driver Readiness", expand=True)
     table.add_column("Component", style="bold white", width=25)

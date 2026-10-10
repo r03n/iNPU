@@ -1,5 +1,5 @@
 """
-Model Hub and Download Manager for IntelFlowLM.
+Model Hub and Download Manager for iNPU.
 Downloads and caches INT4 OpenVINO models from Hugging Face Hub.
 """
 
@@ -18,7 +18,13 @@ class ModelHub:
     def get_local_path_for_repo(repo_id: str) -> Path:
         """Map repo_id (e.g. 'OpenVINO/Qwen2.5-1.5B-Instruct-int4-ov') to local folder."""
         safe_name = repo_id.replace("/", "--")
-        return MODEL_DIR / safe_name
+        primary = MODEL_DIR / safe_name
+        if primary.exists():
+            return primary
+        legacy = Path.home() / ".cache" / "intelflowlm" / "models" / safe_name
+        if legacy.exists():
+            return legacy
+        return primary
 
     @classmethod
     def is_downloaded(cls, tag_or_repo: str) -> bool:
@@ -60,25 +66,34 @@ class ModelHub:
     def list_installed(cls) -> List[Dict[str, Any]]:
         """List all locally downloaded models with disk usage."""
         installed = []
-        if not MODEL_DIR.exists():
-            return installed
+        candidate_dirs = [MODEL_DIR]
+        legacy_dir = Path.home() / ".cache" / "intelflowlm" / "models"
+        if legacy_dir.exists() and legacy_dir != MODEL_DIR:
+            candidate_dirs.append(legacy_dir)
 
-        for path in MODEL_DIR.iterdir():
-            if path.is_dir() and any(path.glob("*.xml")):
-                total_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-                total_mb = total_bytes / (1024 * 1024)
-                
-                # Reverse lookup tag if known
-                repo_id = path.name.replace("--", "/")
-                matched_tags = [t for t, m in MODEL_REGISTRY.items() if m.get("repo_id") == repo_id]
-                primary_tag = matched_tags[0] if matched_tags else repo_id
+        seen_repos = set()
+        for base_dir in candidate_dirs:
+            if not base_dir.exists():
+                continue
+            for path in base_dir.iterdir():
+                if path.is_dir() and any(path.glob("*.xml")):
+                    repo_id = path.name.replace("--", "/")
+                    if repo_id in seen_repos:
+                        continue
+                    seen_repos.add(repo_id)
+                    total_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                    total_mb = total_bytes / (1024 * 1024)
 
-                installed.append({
-                    "tag": primary_tag,
-                    "repo_id": repo_id,
-                    "path": str(path),
-                    "size_mb": round(total_mb, 1)
-                })
+                    # Reverse lookup tag if known
+                    matched_tags = [t for t, m in MODEL_REGISTRY.items() if m.get("repo_id") == repo_id]
+                    primary_tag = matched_tags[0] if matched_tags else repo_id
+
+                    installed.append({
+                        "tag": primary_tag,
+                        "repo_id": repo_id,
+                        "path": str(path),
+                        "size_mb": round(total_mb, 1)
+                    })
         return installed
 
     @classmethod

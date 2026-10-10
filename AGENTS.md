@@ -76,7 +76,7 @@ When running `inpu mcp`, the following tools are exposed over standard input/out
 - **Description**: Generate normalized 384-dimensional vector embeddings using the local NPU (`bge-small`) for rapid semantic repository indexing and search.
 - **Parameters**:
   - `texts` (*list of strings*, required): List of document or code strings to embed.
-- **Returns**: `List[List[float]]` normalized vector embeddings.
+- **Returns**: Object containing `count` (*int*), `dimensions` (*int*, e.g. 384), and `embeddings` (*List[List[float]]*).
 
 ### 5. `npu_status`
 - **Description**: Query real-time silicon hardware health, current clock frequency (MHz), power state (`D0`/`D3hot`), memory usage, and cumulative compute time.

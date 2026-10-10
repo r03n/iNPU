@@ -165,7 +165,7 @@ def render_dashboard(metrics: Dict[str, Any], processes: List[Dict[str, Any]]) -
 
     return Panel(
         content,
-        title="⚡ [bold cyan]IntelFlowLM NPU Hardware Monitor[/bold cyan]",
+        title="⚡ [bold cyan]iNPU Hardware Monitor[/bold cyan]",
         subtitle="[dim]Press Ctrl+C to exit[/dim]",
         border_style="cyan",
         expand=True,
